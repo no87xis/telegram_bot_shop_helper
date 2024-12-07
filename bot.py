@@ -9,6 +9,7 @@ from fpdf import FPDF
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaDocument
 )
+BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"
 from telegram.ext import (
     ApplicationBuilder, ContextTypes, CommandHandler,
     CallbackQueryHandler, MessageHandler, filters, ConversationHandler
