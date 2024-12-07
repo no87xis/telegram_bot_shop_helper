@@ -9,13 +9,13 @@ from fpdf import FPDF
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaDocument
 )
-BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"
 from telegram.ext import (
     ApplicationBuilder, ContextTypes, CommandHandler,
     CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 )
 
-# Константы для этапов диалогов
+BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"  # Подставьте ваш токен
+
 (
     CHOOSING_MAIN_MENU,
     ADDING_PRODUCT_NAME,
@@ -32,9 +32,6 @@ from telegram.ext import (
     SELECTING_USER_ACTION,
 ) = range(13)
 
-#BOT_TOKEN = os.getenv("7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI")  # Укажите ваш токен или замените на строку.
-
-# Инициализация базы данных
 def init_db():
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
@@ -70,7 +67,6 @@ def init_db():
 init_db()
 
 
-# Вспомогательные функции
 def get_user_role(telegram_id):
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
@@ -134,7 +130,6 @@ def create_order(client_name, client_phone, product_name, quantity):
     """, (order_id, client_name, client_phone, product_name, quantity, now, "Оплачено"))
     conn.commit()
     conn.close()
-    # Обновляем остаток
     products = dict(get_all_products())
     new_qty = products.get(product_name,0) - quantity
     update_product_quantity(product_name, new_qty)
@@ -149,11 +144,9 @@ def get_order_by_id(order_id):
     return row
 
 def generate_pdf_order_details(order):
-    # order: order_id, client_name, client_phone, product_name, quantity, date, status
     buffer = BytesIO()
     pdf = FPDF()
     pdf.add_page()
-    # Логотип
     if os.path.exists("logo.png"):
         pdf.image("logo.png", 10, 8, 33)
     pdf.set_font("Arial", size=12)
@@ -170,7 +163,6 @@ def generate_pdf_order_details(order):
     return buffer
 
 def generate_report_orders():
-    # Список текущих заказов с деталями
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
     c.execute("SELECT order_id, client_name, client_phone, product_name, quantity, date, status FROM orders")
@@ -210,7 +202,6 @@ def generate_report_stock():
     return buffer
 
 def generate_report_history(client_data):
-    # Поиск по имени или телефону
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
     c.execute("""
@@ -237,7 +228,6 @@ def generate_report_history(client_data):
     return buffer
 
 def cleanup_old_orders():
-    # Удаляем заказы старше 6 месяцев
     cutoff = (datetime.datetime.now() - datetime.timedelta(days=180)).strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
@@ -245,23 +235,6 @@ def cleanup_old_orders():
     conn.commit()
     conn.close()
 
-def notify_low_stock(context: ContextTypes.DEFAULT_TYPE):
-    products = get_all_products()
-    # Предположим, что у нас в users есть хотя бы один админ
-    # Найдём всех админов
-    conn = sqlite3.connect("database.db")
-    c = conn.cursor()
-    c.execute("SELECT telegram_id FROM users WHERE role='admin'")
-    admins = [row[0] for row in c.fetchall()]
-    conn.close()
-
-    for p in products:
-        if p[1] <=5:
-            # Отправляем уведомление админам
-            for admin_id in admins:
-                context.bot.send_message(chat_id=admin_id, text=f"Внимание! Остаток товара {p[0]} низкий: {p[1]} шт.")
-
-# Главное меню
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = get_user_role(update.effective_user.id)
     if role == "admin":
@@ -279,7 +252,6 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("Проверить заказ по ID", callback_data="check_order")]
         ]
     else:
-        # Неавторизован
         await update.message.reply_text("Вы не авторизованы для работы с этим ботом.")
         return ConversationHandler.END
 
@@ -288,6 +260,9 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.edit_message_text("Главное меню:", reply_markup=reply_markup)
     else:
         await update.message.reply_text("Главное меню:", reply_markup=reply_markup)
+
+    # Синхронизируем состояние
+    context.user_data["current_state"] = CHOOSING_MAIN_MENU
     return CHOOSING_MAIN_MENU
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -301,16 +276,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("Недостаточно прав.")
             return CHOOSING_MAIN_MENU
         await query.edit_message_text("Введите название товара:")
+        context.user_data["current_state"] = ADDING_PRODUCT_NAME
         return ADDING_PRODUCT_NAME
 
     if data == "make_order":
-        # Запускаем процесс создания заказа
-        # Сначала запросим имя клиента
         await query.edit_message_text("Введите имя клиента:")
+        context.user_data["current_state"] = ENTERING_CLIENT_NAME
         return ENTERING_CLIENT_NAME
 
     if data == "check_order":
         await query.edit_message_text("Введите уникальный ID заказа:")
+        context.user_data["current_state"] = ENTERING_SEARCH_ORDER_ID
         return ENTERING_SEARCH_ORDER_ID
 
     if data == "reports":
@@ -323,6 +299,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("История по клиенту", callback_data="report_history")]
         ]
         await query.edit_message_text("Выберите тип отчета:", reply_markup=InlineKeyboardMarkup(keyboard))
+        context.user_data["current_state"] = SELECTING_REPORT_TYPE
         return SELECTING_REPORT_TYPE
 
     if data == "cleanup_old":
@@ -338,6 +315,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("Недостаточно прав.")
             return CHOOSING_MAIN_MENU
         await query.edit_message_text("Введите Telegram ID пользователя, которого хотите добавить:")
+        context.user_data["current_state"] = ADDING_USER_TELEGRAM_ID
         return ADDING_USER_TELEGRAM_ID
 
     if data == "list_products":
@@ -362,13 +340,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "report_history":
         await query.edit_message_text("Введите имя или телефон клиента для поиска:")
+        context.user_data["current_state"] = SELECTING_USER_ACTION
         return SELECTING_USER_ACTION
 
-    # Выбор товара для заказа (динамические callback_data начинаются с "product_")
     if data.startswith("product_"):
         product_name = data.split("_",1)[1]
         context.user_data["selected_product"] = product_name
         await query.edit_message_text(f"Вы выбрали: {product_name}. Введите количество:")
+        context.user_data["current_state"] = ENTERING_ORDER_QTY
         return ENTERING_ORDER_QTY
 
     return CHOOSING_MAIN_MENU
@@ -379,10 +358,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Вы не авторизованы.")
         return ConversationHandler.END
 
-    state = context.user_data.get("state")
-
-    # Добавление продукта: сначала вводим название, потом количество
     current_state = context.user_data.get("current_state")
+
     if current_state == ADDING_PRODUCT_NAME:
         context.user_data["new_product_name"] = update.message.text
         await update.message.reply_text("Введите количество для этого товара:")
@@ -394,10 +371,9 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = context.user_data["new_product_name"]
         add_product(name, qty)
         await update.message.reply_text(f"Товар {name} добавлен с остатком {qty} шт.")
-        context.user_data["current_state"] = None
+        context.user_data["current_state"] = CHOOSING_MAIN_MENU
         return await show_main_menu(update, context)
 
-    # Создание заказа: сначала имя клиента
     if current_state == ENTERING_CLIENT_NAME:
         context.user_data["client_name"] = update.message.text
         await update.message.reply_text("Введите номер телефона клиента:")
@@ -406,11 +382,10 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if current_state == ENTERING_CLIENT_PHONE:
         context.user_data["client_phone"] = update.message.text
-        # Теперь нужно выбрать товар из списка
         products = get_all_products()
         if not products:
             await update.message.reply_text("Нет доступных товаров!")
-            context.user_data["current_state"] = None
+            context.user_data["current_state"] = CHOOSING_MAIN_MENU
             return await show_main_menu(update, context)
         keyboard = []
         for p in products:
@@ -420,7 +395,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return SELECTING_PRODUCT_FOR_ORDER
 
     if current_state == ENTERING_ORDER_QTY:
-        # Ввод количества товара для заказа
         qty = int(update.message.text)
         context.user_data["order_quantity"] = qty
         product_name = context.user_data["selected_product"]
@@ -443,7 +417,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_document(document=pdf_buffer, filename=f"order_{order_id}.pdf")
         else:
             await update.message.reply_text("Операция отменена.")
-        context.user_data["current_state"] = None
+        context.user_data["current_state"] = CHOOSING_MAIN_MENU
         return await show_main_menu(update, context)
 
     if current_state == ENTERING_SEARCH_ORDER_ID:
@@ -455,7 +429,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await update.message.reply_text("Заказ не найден.")
-        context.user_data["current_state"] = None
+        context.user_data["current_state"] = CHOOSING_MAIN_MENU
         return await show_main_menu(update, context)
 
     if current_state == ADDING_USER_TELEGRAM_ID:
@@ -471,31 +445,30 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ADDING_USER_ROLE
         add_user(context.user_data["new_user_id"], role_new)
         await update.message.reply_text("Пользователь добавлен.")
-        context.user_data["current_state"] = None
+        context.user_data["current_state"] = CHOOSING_MAIN_MENU
         return await show_main_menu(update, context)
 
     if current_state == SELECTING_USER_ACTION:
-        # Поиск по имени или телефону
         client_data = update.message.text
         buffer = generate_report_history(client_data)
         await update.message.reply_text("История транзакций:")
         await update.message.reply_document(document=buffer, filename="history_report.pdf")
-        context.user_data["current_state"] = None
+        context.user_data["current_state"] = CHOOSING_MAIN_MENU
         return await show_main_menu(update, context)
 
-    # Если мы дошли сюда без return - значит текст не ожидался.
+    # Если мы дошли сюда, значит текст не подходит ни под одно состояние
     await update.message.reply_text("Неизвестная команда, возвращаюсь в главное меню.")
-    context.user_data["current_state"] = None
+    context.user_data["current_state"] = CHOOSING_MAIN_MENU
     return await show_main_menu(update, context)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = get_user_role(update.effective_user.id)
     if role is None:
-        # Если нет ни одного пользователя, сделаем этого первого - админом
         conn = sqlite3.connect("database.db")
         c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM users")
         count = c.fetchone()[0]
+        conn.close()
         if count == 0:
             add_user(update.effective_user.id,"admin")
             await update.message.reply_text("Вы стали админом, так как это первый запуск бота.")
@@ -505,19 +478,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return await show_main_menu(update, context)
 
-
 def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            CHOOSING_MAIN_MENU: [
-                CallbackQueryHandler(button_handler),
-            ],
+            CHOOSING_MAIN_MENU: [CallbackQueryHandler(button_handler)],
             ADDING_PRODUCT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             ADDING_PRODUCT_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
-            SELECTING_PRODUCT_FOR_ORDER: [CallbackQueryHandler(button_handler),MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
+            SELECTING_PRODUCT_FOR_ORDER: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             ENTERING_CLIENT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             ENTERING_CLIENT_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             ENTERING_ORDER_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
@@ -532,12 +502,6 @@ def main():
     )
 
     application.add_handler(conv_handler)
-
-    # Можно добавить периодический вызов notify_low_stock, если нужно.
-    # from telegram.ext import JobQueue
-    # job_queue = application.job_queue
-    # job_queue.run_repeating(notify_low_stock, interval=3600, first=10) # раз в час проверяем остатки
-
     application.run_polling()
 
 if __name__ == "__main__":
