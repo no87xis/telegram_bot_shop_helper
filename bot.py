@@ -31,7 +31,7 @@ from telegram.ext import (
     SELECTING_USER_ACTION,
 ) = range(13)
 
-BOT_TOKEN = os.getenv("7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI")  # Укажите ваш токен или замените на строку.
+#BOT_TOKEN = os.getenv("7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI")  # Укажите ваш токен или замените на строку.
 
 # Инициализация базы данных
 def init_db():
