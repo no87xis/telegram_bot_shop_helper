@@ -247,12 +247,19 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, tex
             [InlineKeyboardButton("Проверить заказ по ID", callback_data="check_order")]
         ]
     else:
-        await update.message.reply_text("Вы не авторизованы для работы с этим ботом.")
+        # Если нет роли - вы не авторизованы
+        if update.message:
+            await update.message.reply_text("Вы не авторизованы для работы с этим ботом.")
+        else:
+            # Если это callback_query
+            await update.callback_query.edit_message_text("Вы не авторизованы для работы с этим ботом.")
         return ConversationHandler.END
 
     reply_markup = InlineKeyboardMarkup(keyboard)
+    # Всегда будем отправлять новое сообщение для главного меню, чтобы избежать "message is not modified"
     if update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+        # Вместо edit_message_text отправим новое сообщение
+        await update.callback_query.message.reply_text(text, reply_markup=reply_markup)
     else:
         await update.message.reply_text(text, reply_markup=reply_markup)
 
@@ -267,47 +274,54 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "add_product":
         if role != "admin":
-            await query.edit_message_text("Недостаточно прав.")
+            await query.message.reply_text("Недостаточно прав.")
             return CHOOSING_MAIN_MENU
-        await query.edit_message_text("Введите название товара:")
+        await query.message.reply_text("Введите название товара:")
         context.user_data["current_state"] = ADDING_PRODUCT_NAME
         return ADDING_PRODUCT_NAME
 
     if data == "make_order":
-        await query.edit_message_text("Введите имя клиента:")
+        if role not in ["admin","viewer"]:
+            await query.message.reply_text("Недостаточно прав.")
+            return CHOOSING_MAIN_MENU
+        await query.message.reply_text("Введите имя клиента:")
         context.user_data["current_state"] = ENTERING_CLIENT_NAME
         return ENTERING_CLIENT_NAME
 
     if data == "check_order":
-        await query.edit_message_text("Введите уникальный ID заказа:")
+        if role not in ["admin","viewer"]:
+            await query.message.reply_text("Недостаточно прав.")
+            return CHOOSING_MAIN_MENU
+        await query.message.reply_text("Введите уникальный ID заказа:")
         context.user_data["current_state"] = ENTERING_SEARCH_ORDER_ID
         return ENTERING_SEARCH_ORDER_ID
 
     if data == "reports":
         if role != "admin":
-            await query.edit_message_text("Недостаточно прав.")
+            await query.message.reply_text("Недостаточно прав.")
             return CHOOSING_MAIN_MENU
         keyboard = [
             [InlineKeyboardButton("Отчет по заказам", callback_data="report_orders")],
             [InlineKeyboardButton("Отчет по остаткам", callback_data="report_stock")],
             [InlineKeyboardButton("История по клиенту (управление данными)", callback_data="report_history")]
         ]
-        await query.edit_message_text("Выберите тип отчета:", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.message.reply_text("Выберите тип отчета:", reply_markup=InlineKeyboardMarkup(keyboard))
         context.user_data["current_state"] = SELECTING_REPORT_TYPE
         return SELECTING_REPORT_TYPE
 
     if data == "cleanup_old":
         if role != "admin":
-            await query.edit_message_text("Недостаточно прав.")
+            await query.message.reply_text("Недостаточно прав.")
             return CHOOSING_MAIN_MENU
         cleanup_old_orders()
-        return await show_main_menu(update, context, text="Старые записи старше 6 месяцев удалены.\nГлавное меню:")
+        await query.message.reply_text("Старые записи старше 6 месяцев удалены.")
+        return await show_main_menu(update, context)
 
     if data == "add_user":
         if role != "admin":
-            await query.edit_message_text("Недостаточно прав.")
+            await query.message.reply_text("Недостаточно прав.")
             return CHOOSING_MAIN_MENU
-        await query.edit_message_text("Введите Telegram ID пользователя, которого хотите добавить:")
+        await query.message.reply_text("Введите Telegram ID пользователя:")
         context.user_data["current_state"] = ADDING_USER_TELEGRAM_ID
         return ADDING_USER_TELEGRAM_ID
 
@@ -316,35 +330,41 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "Список товаров:\n"
         for p in products:
             text += f"{p[0]}: {p[1]} шт.\n"
-
         # Отправляем список товаров новым сообщением
-        await update.effective_chat.send_message(text=text)
-
+        await query.message.reply_text(text)
         # После этого возвращаемся в главное меню
-        return await show_main_menu(update, context, text="Главное меню:")
+        return await show_main_menu(update, context)
 
     if data == "report_orders":
         try:
             buffer = generate_report_orders()
-            await query.edit_message_text("Отчет по заказам:")
+            await query.message.reply_text("Отчет по заказам:")
             await query.message.reply_document(document=buffer, filename="orders_report.pdf")
         except Exception as e:
-            await query.edit_message_text(f"Ошибка при генерации отчёта: {e}")
+            await query.message.reply_text(f"Ошибка при генерации отчёта: {e}")
         return await show_main_menu(update, context)
 
     if data == "report_stock":
         try:
             buffer = generate_report_stock()
-            await query.edit_message_text("Отчет по остаткам:")
+            await query.message.reply_text("Отчет по остаткам:")
             await query.message.reply_document(document=buffer, filename="stock_report.pdf")
         except Exception as e:
-            await query.edit_message_text(f"Ошибка при генерации отчёта: {e}")
+            await query.message.reply_text(f"Ошибка при генерации отчёта: {e}")
         return await show_main_menu(update, context)
 
     if data == "report_history":
-        await query.edit_message_text("Введите имя клиента для поиска:")
+        await query.message.reply_text("Введите имя клиента для поиска:")
         context.user_data["current_state"] = SELECTING_USER_ACTION
         return SELECTING_USER_ACTION
+
+    if data.startswith("product_"):
+        product_name = data.split("_",1)[1]
+        context.user_data["selected_product"] = product_name
+        # Отправляем новое сообщение
+        await query.message.reply_text(f"Вы выбрали: {product_name}. Введите количество:")
+        context.user_data["current_state"] = ENTERING_ORDER_QTY
+        return ENTERING_ORDER_QTY
 
     if data.startswith("delorder_"):
         order_id = data.split("_",1)[1]
@@ -352,12 +372,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         client_data = context.user_data.get("history_client_data")
         rows = search_orders_by_client(client_data)
         if rows:
-            await query.edit_message_text("Обновлённый список заказов:", 
-                                          reply_markup=history_orders_markup(rows))
+            await query.message.reply_text("Обновлённый список заказов:", 
+                                           reply_markup=history_orders_markup(rows))
             context.user_data["current_state"] = VIEWING_HISTORY_ORDERS
             return VIEWING_HISTORY_ORDERS
         else:
-            return await show_main_menu(update, context, text="Все заказы удалены или отсутствуют.\nГлавное меню:")
+            await query.message.reply_text("Все заказы удалены или отсутствуют.")
+            return await show_main_menu(update, context)
 
     if data == "back_history":
         return await show_main_menu(update, context)
@@ -401,6 +422,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Нет доступных товаров!")
             context.user_data["current_state"] = CHOOSING_MAIN_MENU
             return await show_main_menu(update, context)
+        # Показываем товары
         keyboard = []
         for p in products:
             keyboard.append([InlineKeyboardButton(f"{p[0]} ({p[1]} шт.)", callback_data=f"product_{p[0]}")])
@@ -478,7 +500,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Используйте кнопки для управления.")
         return VIEWING_HISTORY_ORDERS
 
-    # Неизвестная команда
+    # Если не попали ни в одно состояние
     await update.message.reply_text("Неизвестная команда, возвращаюсь в главное меню.")
     context.user_data["current_state"] = CHOOSING_MAIN_MENU
     return await show_main_menu(update, context)
@@ -524,7 +546,6 @@ def main():
             SELECTING_REPORT_TYPE: [CallbackQueryHandler(button_handler)],
             SELECTING_USER_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             VIEWING_HISTORY_ORDERS: [CallbackQueryHandler(button_handler)],
-
             ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, timeout_handler)]
         },
         fallbacks=[CommandHandler("start", start)],
