@@ -29,7 +29,7 @@ BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"  # Подставь
     ADDING_USER_ROLE,
     SELECTING_REPORT_TYPE,
     SELECTING_USER_ACTION,
-    VIEWING_HISTORY_ORDERS,  # Новое состояние для просмотра и удаления заказов клиента
+    VIEWING_HISTORY_ORDERS,  # состояние для просмотра/удаления заказов
 ) = range(13)
 
 def init_db():
@@ -60,7 +60,7 @@ def init_db():
         status TEXT
     )
     """)
-    # Обратите внимание: убрали client_phone из таблицы orders
+    # Здесь нет поля client_phone
     conn.commit()
     conn.close()
 
@@ -150,12 +150,11 @@ def delete_order(order_id):
     conn.close()
 
 def search_orders_by_client(client_data):
-    # Поиск по имени клиента
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
     c.execute("""
-        SELECT order_id, client_name, product_name, quantity, date, status 
-        FROM orders 
+        SELECT order_id, client_name, product_name, quantity, date, status
+        FROM orders
         WHERE client_name LIKE ?
         ORDER BY date DESC
     """, (f"%{client_data}%",))
@@ -164,12 +163,10 @@ def search_orders_by_client(client_data):
     return rows
 
 def setup_unicode_pdf(pdf, size=10):
-    # Добавляем шрифт DejaVu для поддержки Unicode
     pdf.add_font("DejaVu", "", "DejaVuSansCondensed.ttf", uni=True)
     pdf.set_font("DejaVu", "", size)
 
 def generate_pdf_order_details(order):
-    # order: order_id, client_name, product_name, quantity, date, status
     buffer = BytesIO()
     pdf = FPDF()
     pdf.add_page()
@@ -345,11 +342,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["current_state"] = SELECTING_USER_ACTION
         return SELECTING_USER_ACTION
 
-    # Обработка нажатий для удаления заказов:
     if data.startswith("delorder_"):
         order_id = data.split("_",1)[1]
         delete_order(order_id)
-        # Обновим список
         client_data = context.user_data.get("history_client_data")
         rows = search_orders_by_client(client_data)
         if rows:
@@ -358,7 +353,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["current_state"] = VIEWING_HISTORY_ORDERS
             return VIEWING_HISTORY_ORDERS
         else:
-            # Нет заказов
             return await show_main_menu(update, context, text="Все заказы удалены или отсутствуют.\nГлавное меню:")
 
     if data == "back_history":
@@ -367,14 +361,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CHOOSING_MAIN_MENU
 
 def history_orders_markup(rows):
-    # Генерируем клавиатуру для просмотра заказов
-    # Каждая строка: Товар, Дата, Количество, кнопка Удалить
     keyboard = []
     for r in rows:
         # r: order_id, client_name, product_name, quantity, date, status
-        text = f"{r[2]} x {r[3]} | {r[4]} | Статус: {r[5]} (ID:{r[0]})"
-        # Кнопка удаления
-        kb_line = [InlineKeyboardButton("Удалить", callback_data=f"delorder_{r[0]}")]
+        # В данном примере текст заказа мы выводим в предыдущем сообщении, тут главное кнопки
+        kb_line = [InlineKeyboardButton(f"Удалить {r[2]} ({r[3]} шт.) {r[4]} (ID:{r[0]})", callback_data=f"delorder_{r[0]}")]
         keyboard.append(kb_line)
     keyboard.append([InlineKeyboardButton("Назад", callback_data="back_history")])
     return InlineKeyboardMarkup(keyboard)
@@ -403,7 +394,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if current_state == ENTERING_CLIENT_NAME:
         context.user_data["client_name"] = update.message.text
-        # Сразу выводим список товаров, пропускаем ввод телефона
         products = get_all_products()
         if not products:
             await update.message.reply_text("Нет доступных товаров!")
@@ -483,11 +473,10 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await show_main_menu(update, context)
 
     if current_state == VIEWING_HISTORY_ORDERS:
-        # В теории, сюда текст не должен попадать, т.к. мы работаем через кнопки.
         await update.message.reply_text("Используйте кнопки для управления.")
         return VIEWING_HISTORY_ORDERS
 
-    # Если мы дошли сюда, значит текст не подходит ни под одно состояние
+    # Неизвестная команда
     await update.message.reply_text("Неизвестная команда, возвращаюсь в главное меню.")
     context.user_data["current_state"] = CHOOSING_MAIN_MENU
     return await show_main_menu(update, context)
@@ -510,7 +499,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await show_main_menu(update, context)
 
 async def timeout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Вызывается при таймауте (30 секунд бездействия)
     if update.effective_message:
         await update.effective_message.reply_text("Время ожидания истекло. Возвращаюсь в главное меню.")
     return await show_main_menu(update, context)
@@ -534,29 +522,14 @@ def main():
             SELECTING_REPORT_TYPE: [CallbackQueryHandler(button_handler)],
             SELECTING_USER_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             VIEWING_HISTORY_ORDERS: [CallbackQueryHandler(button_handler)],
+
+            # Добавляем состояние таймаута
+            ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, timeout_handler)]
         },
         fallbacks=[CommandHandler("start", start)],
         conversation_timeout=30,
-        # При таймауте вызывается fallback TIMEOUT
         name="my_conversation"
     )
-    # В PTB 20 при таймауте ConversationHandler вызывает TIMEOUT fallback, нужно прописать его
-    # Но PTB 20 требует отдельный способ. Если нет прямой поддержки, можно ловить с помощью error_handler
-    # или использовать run_async. Для простоты используем fallback на start.
-    # Альтернативно, можно в ветке PTB ловить таймаут через on_timeout, но это требует PTB 20.3+.
-    # Предположим, что fallback CommandHandler("start", start) сработает после TIMEOUT.
-    # Если это не сработает, можно добавить TIMEOUT: [MessageHandler(filters.ALL, timeout_handler)] в fallbacks.
-    #
-    # В PTB 20:
-    # TIMEOUT fallback можно добавить как:
-    # fallbacks=[CommandHandler("start", start)],
-    # и: 
-    # conversation_timeout=30
-    # Согласно документации, когда время истечет, state = TIMEOUT. Можно добавить:
-    # TIMEOUT: [MessageHandler(filters.ALL, timeout_handler)]
-    #
-    # Добавим TIMEOUT вручную:
-    conv_handler.TIMEOUT = [MessageHandler(filters.ALL, timeout_handler)]
 
     application.add_handler(conv_handler)
     application.run_polling()
