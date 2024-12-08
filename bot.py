@@ -313,18 +313,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADDING_USER_TELEGRAM_ID
 
     if data == "list_products":
-    products = get_all_products()
-    text = "Список товаров:\n"
-    for p in products:
+        products = get_all_products()
+        text = "Список товаров:\n"
+        for p in products:
         text += f"{p[0]}: {p[1]} шт.\n"
-    
-    # Отправляем список товаров как новое новое сообщение в чат,
-    # вместо редактирования старого сообщения
-    await update.effective_chat.send_message(text=text)
-    
-    # Теперь вызываем главное меню, при этом это будет либо новое сообщение,
-    # либо обновление предыдущего меню, но уже после отправки списка
-    return await show_main_menu(update, context, text="Главное меню:")
+
+    # Отправляем список товаров новым сообщением
+        await update.effective_chat.send_message(text=text)
+
+    # После этого отображаем главное меню
+        return await show_main_menu(update, context, text="Главное меню:")
 
     if data == "report_orders":
         try:
