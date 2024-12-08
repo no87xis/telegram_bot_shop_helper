@@ -18,12 +18,12 @@ BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"  # Подставь
 
 (
     CHOOSING_MAIN_MENU,
-    ADDING_PRODUCT_NAME,
-    ADDING_PRODUCT_QTY,
-    SELECTING_PRODUCT_FOR_ORDER,
+    ADDING_PRODUCT_NAME_STOCK,
+    ADDING_PRODUCT_QTY_STOCK,
     ENTERING_CLIENT_NAME,
+    SELECTING_PRODUCT_FOR_ORDER,
     ENTERING_ORDER_QTY,
-    ENTERING_ORDER_SUM,  # Новое состояние для ввода суммы, оплаченной за весь заказ
+    ENTERING_ORDER_SUM,
     CONFIRM_ORDER,
     ENTERING_SEARCH_ORDER_ID,
     ADDING_USER_TELEGRAM_ID,
@@ -31,6 +31,7 @@ BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"  # Подставь
     SELECTING_REPORT_TYPE,
     SELECTING_USER_ACTION,
     VIEWING_HISTORY_ORDERS,
+    # TIMEOUT не является числовым состоянием, используется ConversationHandler.TIMEOUT
 ) = range(14)
 
 def init_db():
@@ -43,6 +44,7 @@ def init_db():
         role TEXT
     )
     """)
+
     c.execute("""
     CREATE TABLE IF NOT EXISTS products (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,7 +53,7 @@ def init_db():
     )
     """)
 
-    # Добавляем поле sum_paid для хранения суммы, уплаченной за весь заказ
+    # Добавляем поле sum_paid для хранения суммы предоплаты за заказ
     c.execute("""
     CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,17 +169,14 @@ def search_orders_by_client(client_data):
     return rows
 
 def get_sales_summary():
-    # Общая сумма по всем заказам и сумма по каждому товару
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
 
-    # Общая сумма всех продаж
     c.execute("SELECT SUM(sum_paid) FROM orders")
     total_sum = c.fetchone()[0]
     if total_sum is None:
         total_sum = 0.0
 
-    # Сумма по каждому товару
     c.execute("""
         SELECT product_name, SUM(sum_paid)
         FROM orders
@@ -192,7 +191,6 @@ def setup_unicode_pdf(pdf, size=10):
     pdf.set_font("DejaVu", "", size)
 
 def generate_pdf_order_details(order):
-    # order: order_id, client_name, product_name, quantity, date, status, sum_paid
     order_id, client_name, product_name, quantity, date, status, sum_paid = order
     quantity = int(quantity)
     price_per_item = sum_paid / quantity if quantity > 0 else 0
@@ -201,18 +199,13 @@ def generate_pdf_order_details(order):
     pdf = FPDF()
     pdf.add_page()
 
-    # Водяной знак:
-    # Сделаем большой логотип по центру с прозрачностью
-    # fpdf не поддерживает прозрачность из коробки, но можно обойтись светлым оттенком
-    # или просто вставить бледный логотип. Если нужна реальная прозрачность, нужна более продвинутая библиотека.
-    # Для упрощения - вставим логотип светлым оттенком.
-    if os.path.exists("logo.png"):
-        # Сделаем логотип большим и блеклым
-        pdf.image("logo.png", x=50, y=100, w=100, h=0, type='', link='', )
-        # Это будет не совсем прозрачность, но пусть будет блеклый/светлый логотип заранее подготовить
-        # или пропустить. Сейчас просто вставим обычный логотип. Для реальной прозрачности нужна другая техника.
-
     setup_unicode_pdf(pdf, 10)
+
+    # Шапка и водяной знак (упрощаем водяной знак, просто ставим логотип фоново)
+    if os.path.exists("logo.png"):
+        # водяной знак: можно просто большой светлый логотип в центре (в реальности нужно заранее сделать бледный логотип)
+        # Здесь для упрощения пропускаем реальную прозрачность
+        pass
 
     # Шапка документа
     pdf.set_xy(10,10)
@@ -227,7 +220,6 @@ def generate_pdf_order_details(order):
     pdf.set_x(35)
     pdf.cell(0,5,"Телефон: +7(999)999-99-99", ln=1)
     pdf.ln(5)
-    # Линия
     pdf.set_draw_color(150,150,150)
     pdf.set_line_width(0.5)
     pdf.line(10,pdf.get_y(),200,pdf.get_y())
@@ -238,10 +230,8 @@ def generate_pdf_order_details(order):
     pdf.cell(0,10,"Счёт / Квитанция об оплате", ln=1, align='C')
     pdf.ln(5)
 
-    # Таблица с данными
     pdf.set_font("DejaVu","",10)
-    # Легкие линии и отступы
-    # Сделаем простую таблицу 2 колонки
+
     def table_row(label, value):
         pdf.set_x(20)
         pdf.set_draw_color(200,200,200)
@@ -261,7 +251,6 @@ def generate_pdf_order_details(order):
     pdf.cell(0,5,"Данный документ подтверждает факт предоплаты по заказу. Для получения товара",ln=1)
     pdf.cell(0,5,"предъявите уникальный номер заказа.",ln=1)
 
-    # Линия
     pdf.ln(5)
     pdf.set_draw_color(150,150,150)
     pdf.line(10,pdf.get_y(),200,pdf.get_y())
@@ -338,24 +327,6 @@ def generate_report_history(client_data):
     buffer.seek(0)
     return buffer
 
-def get_sales_summary():
-    conn = sqlite3.connect("database.db")
-    c = conn.cursor()
-
-    c.execute("SELECT SUM(sum_paid) FROM orders")
-    total_sum = c.fetchone()[0]
-    if total_sum is None:
-        total_sum = 0.0
-
-    c.execute("""
-        SELECT product_name, SUM(sum_paid)
-        FROM orders
-        GROUP BY product_name
-    """)
-    product_sums = c.fetchall()
-    conn.close()
-    return total_sum, product_sums
-
 def generate_report_sales_sum():
     total_sum, product_sums = get_sales_summary()
 
@@ -367,7 +338,7 @@ def generate_report_sales_sum():
         pdf.image("logo.png", 10,8,33)
     pdf.ln(20)
     pdf.set_font("DejaVu","",14)
-    pdf.cell(0,10,"Отчет по суммам продаж",0,1, 'C')
+    pdf.cell(0,10,"Отчет по суммам продаж",0,1,'C')
     pdf.ln(5)
     pdf.set_font("DejaVu","",10)
     pdf.cell(0,8,f"Общий объем продаж: {total_sum:.2f} руб.",0,1)
@@ -407,7 +378,6 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, tex
         return ConversationHandler.END
 
     reply_markup = InlineKeyboardMarkup(keyboard)
-    # Всегда отправляем новое сообщение для меню
     if update.callback_query:
         await update.callback_query.message.reply_text(text, reply_markup=reply_markup)
     else:
@@ -426,14 +396,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if role != "admin":
             await query.message.reply_text("Недостаточно прав.")
             return CHOOSING_MAIN_MENU
+        # Добавить товар: спросим название
         await query.message.reply_text("Введите название товара:")
-        context.user_data["current_state"] = ADDING_PRODUCT_NAME
-        return ADDING_PRODUCT_NAME
+        context.user_data["current_state"] = ADDING_PRODUCT_NAME_STOCK
+        return ADDING_PRODUCT_NAME_STOCK
 
     if data == "make_order":
         if role not in ["admin","viewer"]:
             await query.message.reply_text("Недостаточно прав.")
             return CHOOSING_MAIN_MENU
+        # Сделать предоплату: сперва имя клиента
         await query.message.reply_text("Введите имя клиента:")
         context.user_data["current_state"] = ENTERING_CLIENT_NAME
         return ENTERING_CLIENT_NAME
@@ -517,8 +489,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await show_main_menu(update, context)
 
     if data.startswith("product_"):
+        # Это выбор товара при предоплате
         product_name = data.split("_",1)[1]
-        context.user_data["selected_product"] = product_name
+        context.user_data["order_product_name"] = product_name
         await query.message.reply_text(f"Вы выбрали: {product_name}. Введите количество:")
         context.user_data["current_state"] = ENTERING_ORDER_QTY
         return ENTERING_ORDER_QTY
@@ -559,30 +532,22 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     current_state = context.user_data.get("current_state")
 
-    if current_state == ADDING_PRODUCT_NAME:
-        context.user_data["new_product_name"] = update.message.text
+    # Добавить товар в наличии
+    if current_state == ADDING_PRODUCT_NAME_STOCK:
+        context.user_data["stock_product_name"] = update.message.text
         await update.message.reply_text("Введите количество для этого товара:")
-        context.user_data["current_state"] = ADDING_PRODUCT_QTY
-        return ADDING_PRODUCT_QTY
+        context.user_data["current_state"] = ADDING_PRODUCT_QTY_STOCK
+        return ADDING_PRODUCT_QTY_STOCK
 
-    if current_state == ADDING_PRODUCT_QTY:
+    if current_state == ADDING_PRODUCT_QTY_STOCK:
         qty = int(update.message.text)
-        context.user_data["new_product_qty"] = qty
-        await update.message.reply_text("Введите сумму, которую клиент оплатил за всё количество:")
-        context.user_data["current_state"] = ENTERING_ORDER_SUM
-        return ENTERING_ORDER_SUM
+        name = context.user_data["stock_product_name"]
+        add_product(name, qty)
+        await update.message.reply_text(f"Товар {name} добавлен с остатком {qty} шт.")
+        context.user_data["current_state"] = CHOOSING_MAIN_MENU
+        return await show_main_menu(update, context)
 
-    if current_state == ENTERING_ORDER_SUM:
-        sum_paid = float(update.message.text)
-        context.user_data["order_sum_paid"] = sum_paid
-        # Теперь у нас есть имя клиента, товар, количество, сумма
-        product_name = context.user_data["selected_product"]
-        qty = context.user_data["new_product_qty"]
-        client_name = context.user_data["client_name"]
-        await update.message.reply_text(f"Вы хотите оплатить {qty} шт. {product_name} для {client_name} за {sum_paid:.2f} руб.? (Да/Нет)")
-        context.user_data["current_state"] = CONFIRM_ORDER
-        return CONFIRM_ORDER
-
+    # Сделать предоплату
     if current_state == ENTERING_CLIENT_NAME:
         context.user_data["client_name"] = update.message.text
         products = get_all_products()
@@ -599,21 +564,42 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if current_state == ENTERING_ORDER_QTY:
         qty = int(update.message.text)
-        context.user_data["new_product_qty"] = qty
+        context.user_data["order_qty"] = qty
         await update.message.reply_text("Введите сумму, которую клиент оплатил за всё количество:")
         context.user_data["current_state"] = ENTERING_ORDER_SUM
         return ENTERING_ORDER_SUM
 
-    if current_state == CONFIRM_ORDER:
-        # Если сюда попали текстом - это повтор, лучше проигнорировать
-        await update.message.reply_text("Используйте Да/Нет, чтобы подтвердить или отменить.")
+    if current_state == ENTERING_ORDER_SUM:
+        sum_paid = float(update.message.text)
+        context.user_data["order_sum_paid"] = sum_paid
+        product_name = context.user_data["order_product_name"]
+        qty = context.user_data["order_qty"]
+        client_name = context.user_data["client_name"]
+        await update.message.reply_text(f"Вы хотите оплатить {qty} шт. {product_name} для {client_name} за {sum_paid:.2f} руб.? (Да/Нет)")
+        context.user_data["current_state"] = CONFIRM_ORDER
         return CONFIRM_ORDER
+
+    if current_state == CONFIRM_ORDER:
+        answer = update.message.text.lower()
+        if answer == "да":
+            product_name = context.user_data["order_product_name"]
+            qty = context.user_data["order_qty"]
+            sum_paid = context.user_data["order_sum_paid"]
+            client_name = context.user_data["client_name"]
+            order_id = create_order(client_name, product_name, qty, sum_paid)
+            order = get_order_by_id(order_id)
+            pdf_buffer = generate_pdf_order_details(order)
+            await update.message.reply_text(f"Заказ создан! ID: {order_id}")
+            await update.message.reply_document(document=pdf_buffer, filename=f"order_{order_id}.pdf")
+        else:
+            await update.message.reply_text("Операция отменена.")
+        context.user_data["current_state"] = CHOOSING_MAIN_MENU
+        return await show_main_menu(update, context)
 
     if current_state == ENTERING_SEARCH_ORDER_ID:
         order_id = update.message.text
         order = get_order_by_id(order_id)
         if order:
-            # order: order_id, client_name, product_name, quantity, date, status, sum_paid
             o_id, c_name, p_name, q, d, st, sp = order
             await update.message.reply_text(
                 f"Заказ: {o_id}\nКлиент: {c_name}\nТовар: {p_name} x {q}\nДата: {d}\nСтатус: {st}\nСумма: {sp:.2f}"
@@ -656,7 +642,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Используйте кнопки для управления.")
         return VIEWING_HISTORY_ORDERS
 
-    # Если не попали ни в одно состояние
+    # Неизвестная команда
     await update.message.reply_text("Неизвестная команда, возвращаюсь в главное меню.")
     context.user_data["current_state"] = CHOOSING_MAIN_MENU
     return await show_main_menu(update, context)
@@ -690,19 +676,23 @@ def main():
         entry_points=[CommandHandler("start", start)],
         states={
             CHOOSING_MAIN_MENU: [CallbackQueryHandler(button_handler)],
-            ADDING_PRODUCT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
-            ADDING_PRODUCT_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
-            SELECTING_PRODUCT_FOR_ORDER: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
+
+            ADDING_PRODUCT_NAME_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
+            ADDING_PRODUCT_QTY_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
+
             ENTERING_CLIENT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
+            SELECTING_PRODUCT_FOR_ORDER: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             ENTERING_ORDER_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             ENTERING_ORDER_SUM: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             CONFIRM_ORDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
+
             ENTERING_SEARCH_ORDER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             ADDING_USER_TELEGRAM_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             ADDING_USER_ROLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             SELECTING_REPORT_TYPE: [CallbackQueryHandler(button_handler)],
             SELECTING_USER_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             VIEWING_HISTORY_ORDERS: [CallbackQueryHandler(button_handler)],
+
             ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, timeout_handler)]
         },
         fallbacks=[CommandHandler("start", start)],
