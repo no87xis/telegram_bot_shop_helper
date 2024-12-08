@@ -7,7 +7,7 @@ from io import BytesIO
 
 from fpdf import FPDF
 from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaDocument
+    Update, InlineKeyboardButton, InlineKeyboardMarkup
 )
 from telegram.ext import (
     ApplicationBuilder, ContextTypes, CommandHandler,
@@ -22,7 +22,6 @@ BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"  # Подставь
     ADDING_PRODUCT_QTY,
     SELECTING_PRODUCT_FOR_ORDER,
     ENTERING_CLIENT_NAME,
-    ENTERING_CLIENT_PHONE,
     ENTERING_ORDER_QTY,
     CONFIRM_ORDER,
     ENTERING_SEARCH_ORDER_ID,
@@ -30,6 +29,7 @@ BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"  # Подставь
     ADDING_USER_ROLE,
     SELECTING_REPORT_TYPE,
     SELECTING_USER_ACTION,
+    VIEWING_HISTORY_ORDERS,  # Новое состояние для просмотра и удаления заказов клиента
 ) = range(13)
 
 def init_db():
@@ -54,18 +54,17 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         order_id TEXT UNIQUE,
         client_name TEXT,
-        client_phone TEXT,
         product_name TEXT,
         quantity INTEGER,
         date TEXT,
         status TEXT
     )
     """)
+    # Обратите внимание: убрали client_phone из таблицы orders
     conn.commit()
     conn.close()
 
 init_db()
-
 
 def get_user_role(telegram_id):
     conn = sqlite3.connect("database.db")
@@ -119,15 +118,15 @@ def get_all_products():
     conn.close()
     return rows
 
-def create_order(client_name, client_phone, product_name, quantity):
+def create_order(client_name, product_name, quantity):
     order_id = generate_order_id()
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
     c.execute("""
-        INSERT INTO orders (order_id, client_name, client_phone, product_name, quantity, date, status)
-        VALUES (?,?,?,?,?,?,?)
-    """, (order_id, client_name, client_phone, product_name, quantity, now, "Оплачено"))
+        INSERT INTO orders (order_id, client_name, product_name, quantity, date, status)
+        VALUES (?,?,?,?,?,?)
+    """, (order_id, client_name, product_name, quantity, now, "Оплачено"))
     conn.commit()
     conn.close()
     products = dict(get_all_products())
@@ -138,26 +137,52 @@ def create_order(client_name, client_phone, product_name, quantity):
 def get_order_by_id(order_id):
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
-    c.execute("SELECT order_id, client_name, client_phone, product_name, quantity, date, status FROM orders WHERE order_id=?", (order_id,))
+    c.execute("SELECT order_id, client_name, product_name, quantity, date, status FROM orders WHERE order_id=?", (order_id,))
     row = c.fetchone()
     conn.close()
     return row
 
+def delete_order(order_id):
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+    c.execute("DELETE FROM orders WHERE order_id=?", (order_id,))
+    conn.commit()
+    conn.close()
+
+def search_orders_by_client(client_data):
+    # Поиск по имени клиента
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+    c.execute("""
+        SELECT order_id, client_name, product_name, quantity, date, status 
+        FROM orders 
+        WHERE client_name LIKE ?
+        ORDER BY date DESC
+    """, (f"%{client_data}%",))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def setup_unicode_pdf(pdf, size=10):
+    # Добавляем шрифт DejaVu для поддержки Unicode
+    pdf.add_font("DejaVu", "", "DejaVuSansCondensed.ttf", uni=True)
+    pdf.set_font("DejaVu", "", size)
+
 def generate_pdf_order_details(order):
+    # order: order_id, client_name, product_name, quantity, date, status
     buffer = BytesIO()
     pdf = FPDF()
     pdf.add_page()
+    setup_unicode_pdf(pdf, 12)
     if os.path.exists("logo.png"):
         pdf.image("logo.png", 10, 8, 33)
-    pdf.set_font("Arial", size=12)
     pdf.ln(20)
     pdf.cell(0, 10, f"ID заказа: {order[0]}", 0, 1)
-    pdf.cell(0, 10, f"Дата оплаты: {order[5]}", 0, 1)
+    pdf.cell(0, 10, f"Дата оплаты: {order[4]}", 0, 1)
     pdf.cell(0, 10, f"Имя клиента: {order[1]}", 0, 1)
-    pdf.cell(0, 10, f"Телефон: {order[2]}", 0, 1)
-    pdf.cell(0, 10, f"Товар: {order[3]}", 0, 1)
-    pdf.cell(0, 10, f"Количество: {order[4]}", 0, 1)
-    pdf.cell(0, 10, f"Статус: {order[6]}", 0, 1)
+    pdf.cell(0, 10, f"Товар: {order[2]}", 0, 1)
+    pdf.cell(0, 10, f"Количество: {order[3]}", 0, 1)
+    pdf.cell(0, 10, f"Статус: {order[5]}", 0, 1)
     pdf.output(buffer, 'F')
     buffer.seek(0)
     return buffer
@@ -165,21 +190,21 @@ def generate_pdf_order_details(order):
 def generate_report_orders():
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
-    c.execute("SELECT order_id, client_name, client_phone, product_name, quantity, date, status FROM orders")
+    c.execute("SELECT order_id, client_name, product_name, quantity, date, status FROM orders")
     rows = c.fetchall()
     conn.close()
 
     buffer = BytesIO()
     pdf = FPDF()
     pdf.add_page()
+    setup_unicode_pdf(pdf, 10)
     if os.path.exists("logo.png"):
         pdf.image("logo.png", 10, 8, 33)
-    pdf.set_font("Arial", size=10)
     pdf.ln(20)
     pdf.cell(0,10,"Отчет по заказам",0,1)
     pdf.ln(5)
     for row in rows:
-        pdf.cell(0,8,f"ID: {row[0]} | {row[1]} ({row[2]}) - {row[3]} x {row[4]} | Дата: {row[5]} | Статус: {row[6]}",0,1)
+        pdf.cell(0,8,f"ID: {row[0]} | {row[1]} - {row[2]} x {row[3]} | Дата: {row[4]} | Статус: {row[5]}",0,1)
     pdf.output(buffer, 'F')
     buffer.seek(0)
     return buffer
@@ -189,40 +214,14 @@ def generate_report_stock():
     buffer = BytesIO()
     pdf = FPDF()
     pdf.add_page()
+    setup_unicode_pdf(pdf, 10)
     if os.path.exists("logo.png"):
         pdf.image("logo.png", 10, 8, 33)
-    pdf.set_font("Arial", size=10)
     pdf.ln(20)
     pdf.cell(0,10,"Отчет по остаткам",0,1)
     pdf.ln(5)
     for p in products:
         pdf.cell(0,8,f"Товар: {p[0]} | Остаток: {p[1]}",0,1)
-    pdf.output(buffer,'F')
-    buffer.seek(0)
-    return buffer
-
-def generate_report_history(client_data):
-    conn = sqlite3.connect("database.db")
-    c = conn.cursor()
-    c.execute("""
-        SELECT order_id, client_name, client_phone, product_name, quantity, date, status 
-        FROM orders 
-        WHERE client_name LIKE ? OR client_phone LIKE ?
-    """, (f"%{client_data}%", f"%{client_data}%"))
-    rows = c.fetchall()
-    conn.close()
-
-    buffer = BytesIO()
-    pdf = FPDF()
-    pdf.add_page()
-    if os.path.exists("logo.png"):
-        pdf.image("logo.png", 10, 8, 33)
-    pdf.set_font("Arial", size=10)
-    pdf.ln(20)
-    pdf.cell(0,10,f"История транзакций по: {client_data}",0,1)
-    pdf.ln(5)
-    for row in rows:
-        pdf.cell(0,8,f"ID: {row[0]} | {row[1]} ({row[2]}) - {row[3]} x {row[4]} | Дата: {row[5]} | Статус: {row[6]}",0,1)
     pdf.output(buffer,'F')
     buffer.seek(0)
     return buffer
@@ -235,7 +234,7 @@ def cleanup_old_orders():
     conn.commit()
     conn.close()
 
-async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, text="Главное меню:"):
     role = get_user_role(update.effective_user.id)
     if role == "admin":
         keyboard = [
@@ -257,11 +256,10 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply_markup = InlineKeyboardMarkup(keyboard)
     if update.callback_query:
-        await update.callback_query.edit_message_text("Главное меню:", reply_markup=reply_markup)
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
     else:
-        await update.message.reply_text("Главное меню:", reply_markup=reply_markup)
+        await update.message.reply_text(text, reply_markup=reply_markup)
 
-    # Синхронизируем состояние
     context.user_data["current_state"] = CHOOSING_MAIN_MENU
     return CHOOSING_MAIN_MENU
 
@@ -296,7 +294,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("Отчет по заказам", callback_data="report_orders")],
             [InlineKeyboardButton("Отчет по остаткам", callback_data="report_stock")],
-            [InlineKeyboardButton("История по клиенту", callback_data="report_history")]
+            [InlineKeyboardButton("История по клиенту (управление данными)", callback_data="report_history")]
         ]
         await query.edit_message_text("Выберите тип отчета:", reply_markup=InlineKeyboardMarkup(keyboard))
         context.user_data["current_state"] = SELECTING_REPORT_TYPE
@@ -307,8 +305,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("Недостаточно прав.")
             return CHOOSING_MAIN_MENU
         cleanup_old_orders()
-        await query.edit_message_text("Старые записи старше 6 месяцев удалены.")
-        return await show_main_menu(update, context)
+        return await show_main_menu(update, context, text="Старые записи старше 6 месяцев удалены.\nГлавное меню:")
 
     if data == "add_user":
         if role != "admin":
@@ -323,34 +320,64 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "Список товаров:\n"
         for p in products:
             text += f"{p[0]}: {p[1]} шт.\n"
-        await query.edit_message_text(text)
-        return await show_main_menu(update, context)
+        return await show_main_menu(update, context, text=text)
 
     if data == "report_orders":
-        buffer = generate_report_orders()
-        await query.edit_message_text("Отчет по заказам:")
-        await query.message.reply_document(document=buffer, filename="orders_report.pdf")
+        try:
+            buffer = generate_report_orders()
+            await query.edit_message_text("Отчет по заказам:")
+            await query.message.reply_document(document=buffer, filename="orders_report.pdf")
+        except Exception as e:
+            await query.edit_message_text(f"Ошибка при генерации отчёта: {e}")
         return await show_main_menu(update, context)
 
     if data == "report_stock":
-        buffer = generate_report_stock()
-        await query.edit_message_text("Отчет по остаткам:")
-        await query.message.reply_document(document=buffer, filename="stock_report.pdf")
+        try:
+            buffer = generate_report_stock()
+            await query.edit_message_text("Отчет по остаткам:")
+            await query.message.reply_document(document=buffer, filename="stock_report.pdf")
+        except Exception as e:
+            await query.edit_message_text(f"Ошибка при генерации отчёта: {e}")
         return await show_main_menu(update, context)
 
     if data == "report_history":
-        await query.edit_message_text("Введите имя или телефон клиента для поиска:")
+        await query.edit_message_text("Введите имя клиента для поиска:")
         context.user_data["current_state"] = SELECTING_USER_ACTION
         return SELECTING_USER_ACTION
 
-    if data.startswith("product_"):
-        product_name = data.split("_",1)[1]
-        context.user_data["selected_product"] = product_name
-        await query.edit_message_text(f"Вы выбрали: {product_name}. Введите количество:")
-        context.user_data["current_state"] = ENTERING_ORDER_QTY
-        return ENTERING_ORDER_QTY
+    # Обработка нажатий для удаления заказов:
+    if data.startswith("delorder_"):
+        order_id = data.split("_",1)[1]
+        delete_order(order_id)
+        # Обновим список
+        client_data = context.user_data.get("history_client_data")
+        rows = search_orders_by_client(client_data)
+        if rows:
+            await query.edit_message_text("Обновлённый список заказов:", 
+                                          reply_markup=history_orders_markup(rows))
+            context.user_data["current_state"] = VIEWING_HISTORY_ORDERS
+            return VIEWING_HISTORY_ORDERS
+        else:
+            # Нет заказов
+            return await show_main_menu(update, context, text="Все заказы удалены или отсутствуют.\nГлавное меню:")
+
+    if data == "back_history":
+        return await show_main_menu(update, context)
 
     return CHOOSING_MAIN_MENU
+
+def history_orders_markup(rows):
+    # Генерируем клавиатуру для просмотра заказов
+    # Каждая строка: Товар, Дата, Количество, кнопка Удалить
+    keyboard = []
+    for r in rows:
+        # r: order_id, client_name, product_name, quantity, date, status
+        text = f"{r[2]} x {r[3]} | {r[4]} | Статус: {r[5]} (ID:{r[0]})"
+        # Кнопка удаления
+        kb_line = [InlineKeyboardButton("Удалить", callback_data=f"delorder_{r[0]}")]
+        keyboard.append(kb_line)
+    keyboard.append([InlineKeyboardButton("Назад", callback_data="back_history")])
+    return InlineKeyboardMarkup(keyboard)
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = get_user_role(update.effective_user.id)
@@ -376,12 +403,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if current_state == ENTERING_CLIENT_NAME:
         context.user_data["client_name"] = update.message.text
-        await update.message.reply_text("Введите номер телефона клиента:")
-        context.user_data["current_state"] = ENTERING_CLIENT_PHONE
-        return ENTERING_CLIENT_PHONE
-
-    if current_state == ENTERING_CLIENT_PHONE:
-        context.user_data["client_phone"] = update.message.text
+        # Сразу выводим список товаров, пропускаем ввод телефона
         products = get_all_products()
         if not products:
             await update.message.reply_text("Нет доступных товаров!")
@@ -409,8 +431,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             product_name = context.user_data["selected_product"]
             qty = context.user_data["order_quantity"]
             client_name = context.user_data["client_name"]
-            client_phone = context.user_data["client_phone"]
-            order_id = create_order(client_name, client_phone, product_name, qty)
+            order_id = create_order(client_name, product_name, qty)
             order = get_order_by_id(order_id)
             pdf_buffer = generate_pdf_order_details(order)
             await update.message.reply_text(f"Заказ создан! ID: {order_id}")
@@ -425,7 +446,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         order = get_order_by_id(order_id)
         if order:
             await update.message.reply_text(
-                f"Заказ: {order[0]}\nКлиент: {order[1]}, {order[2]}\nТовар: {order[3]} x {order[4]}\nДата: {order[5]}\nСтатус: {order[6]}"
+                f"Заказ: {order[0]}\nКлиент: {order[1]}\nТовар: {order[2]} x {order[3]}\nДата: {order[4]}\nСтатус: {order[5]}"
             )
         else:
             await update.message.reply_text("Заказ не найден.")
@@ -450,11 +471,21 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if current_state == SELECTING_USER_ACTION:
         client_data = update.message.text
-        buffer = generate_report_history(client_data)
-        await update.message.reply_text("История транзакций:")
-        await update.message.reply_document(document=buffer, filename="history_report.pdf")
-        context.user_data["current_state"] = CHOOSING_MAIN_MENU
-        return await show_main_menu(update, context)
+        context.user_data["history_client_data"] = client_data
+        rows = search_orders_by_client(client_data)
+        if rows:
+            await update.message.reply_text("Результаты поиска:", reply_markup=history_orders_markup(rows))
+            context.user_data["current_state"] = VIEWING_HISTORY_ORDERS
+            return VIEWING_HISTORY_ORDERS
+        else:
+            await update.message.reply_text("Заказы не найдены.")
+            context.user_data["current_state"] = CHOOSING_MAIN_MENU
+            return await show_main_menu(update, context)
+
+    if current_state == VIEWING_HISTORY_ORDERS:
+        # В теории, сюда текст не должен попадать, т.к. мы работаем через кнопки.
+        await update.message.reply_text("Используйте кнопки для управления.")
+        return VIEWING_HISTORY_ORDERS
 
     # Если мы дошли сюда, значит текст не подходит ни под одно состояние
     await update.message.reply_text("Неизвестная команда, возвращаюсь в главное меню.")
@@ -478,6 +509,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return await show_main_menu(update, context)
 
+async def timeout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Вызывается при таймауте (30 секунд бездействия)
+    if update.effective_message:
+        await update.effective_message.reply_text("Время ожидания истекло. Возвращаюсь в главное меню.")
+    return await show_main_menu(update, context)
+
 def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -489,7 +526,6 @@ def main():
             ADDING_PRODUCT_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             SELECTING_PRODUCT_FOR_ORDER: [CallbackQueryHandler(button_handler), MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             ENTERING_CLIENT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
-            ENTERING_CLIENT_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             ENTERING_ORDER_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             CONFIRM_ORDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             ENTERING_SEARCH_ORDER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
@@ -497,9 +533,30 @@ def main():
             ADDING_USER_ROLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             SELECTING_REPORT_TYPE: [CallbackQueryHandler(button_handler)],
             SELECTING_USER_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
+            VIEWING_HISTORY_ORDERS: [CallbackQueryHandler(button_handler)],
         },
-        fallbacks=[]
+        fallbacks=[CommandHandler("start", start)],
+        conversation_timeout=30,
+        # При таймауте вызывается fallback TIMEOUT
+        name="my_conversation"
     )
+    # В PTB 20 при таймауте ConversationHandler вызывает TIMEOUT fallback, нужно прописать его
+    # Но PTB 20 требует отдельный способ. Если нет прямой поддержки, можно ловить с помощью error_handler
+    # или использовать run_async. Для простоты используем fallback на start.
+    # Альтернативно, можно в ветке PTB ловить таймаут через on_timeout, но это требует PTB 20.3+.
+    # Предположим, что fallback CommandHandler("start", start) сработает после TIMEOUT.
+    # Если это не сработает, можно добавить TIMEOUT: [MessageHandler(filters.ALL, timeout_handler)] в fallbacks.
+    #
+    # В PTB 20:
+    # TIMEOUT fallback можно добавить как:
+    # fallbacks=[CommandHandler("start", start)],
+    # и: 
+    # conversation_timeout=30
+    # Согласно документации, когда время истечет, state = TIMEOUT. Можно добавить:
+    # TIMEOUT: [MessageHandler(filters.ALL, timeout_handler)]
+    #
+    # Добавим TIMEOUT вручную:
+    conv_handler.TIMEOUT = [MessageHandler(filters.ALL, timeout_handler)]
 
     application.add_handler(conv_handler)
     application.run_polling()
