@@ -29,7 +29,7 @@ BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"  # Подставь
     ADDING_USER_ROLE,
     SELECTING_REPORT_TYPE,
     SELECTING_USER_ACTION,
-    VIEWING_HISTORY_ORDERS,  # состояние для просмотра/удаления заказов
+    VIEWING_HISTORY_ORDERS,
 ) = range(13)
 
 def init_db():
@@ -60,7 +60,6 @@ def init_db():
         status TEXT
     )
     """)
-    # Здесь нет поля client_phone
     conn.commit()
     conn.close()
 
@@ -316,12 +315,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         products = get_all_products()
         text = "Список товаров:\n"
         for p in products:
-        text += f"{p[0]}: {p[1]} шт.\n"
+            text += f"{p[0]}: {p[1]} шт.\n"
 
-    # Отправляем список товаров новым сообщением
+        # Отправляем список товаров новым сообщением
         await update.effective_chat.send_message(text=text)
 
-    # После этого отображаем главное меню
+        # После этого возвращаемся в главное меню
         return await show_main_menu(update, context, text="Главное меню:")
 
     if data == "report_orders":
@@ -368,8 +367,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def history_orders_markup(rows):
     keyboard = []
     for r in rows:
-        # r: order_id, client_name, product_name, quantity, date, status
-        # В данном примере текст заказа мы выводим в предыдущем сообщении, тут главное кнопки
         kb_line = [InlineKeyboardButton(f"Удалить {r[2]} ({r[3]} шт.) {r[4]} (ID:{r[0]})", callback_data=f"delorder_{r[0]}")]
         keyboard.append(kb_line)
     keyboard.append([InlineKeyboardButton("Назад", callback_data="back_history")])
@@ -528,7 +525,6 @@ def main():
             SELECTING_USER_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)],
             VIEWING_HISTORY_ORDERS: [CallbackQueryHandler(button_handler)],
 
-            # Добавляем состояние таймаута
             ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, timeout_handler)]
         },
         fallbacks=[CommandHandler("start", start)],
