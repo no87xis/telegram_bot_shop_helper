@@ -8,7 +8,7 @@ import logging
 import mysql.connector
 from fpdf import FPDF
 from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaDocument
+    Update, InlineKeyboardButton, InlineKeyboardMarkup
 )
 from telegram.ext import (
     ApplicationBuilder, ContextTypes, CommandHandler,
@@ -47,9 +47,8 @@ BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"
     SELECTING_REPORT_TYPE,
     ENTERING_REPORT_DATE_RANGE_START,
     ENTERING_REPORT_DATE_RANGE_END,
-    VIEWING_HISTORY_ORDERS,
     CONFIRM_CLEAR_ORDERS
-) = range(16)
+) = range(15)
 
 def get_connection():
     try:
@@ -113,7 +112,7 @@ def init_db():
         if conn:
             conn.close()
 
-# Инициализируем базу данных
+# Инициализация базы данных
 init_db()
 
 def generate_order_id():
@@ -163,7 +162,6 @@ def is_admin(telegram_id):
     return role == "admin"
 
 def main_menu_keyboard():
-    # Главное меню
     keyboard = [
         [InlineKeyboardButton("Добавить товар", callback_data="add_product")],
         [InlineKeyboardButton("Сделать предоплату", callback_data="make_payment")],
@@ -193,12 +191,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             c.execute(f"SELECT COUNT(*) FROM {DB_PRFX}users")
             count = c.fetchone()[0]
             if count == 0:
-                # Первый пользователь становится админом
                 add_user_db(user_id, "admin")
                 await update.message.reply_text("Вы стали админом, так как это первый запуск бота.")
             else:
                 await update.message.reply_text("Вы не авторизованы. Обратитесь к администратору.")
-                return
+                return ConversationHandler.END
         except mysql.connector.Error as err:
             logger.error(f"Ошибка при проверке пользователей: {err}")
         finally:
@@ -206,76 +203,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 c.close()
             if conn:
                 conn.close()
-    await show_main_menu(update, context)
-
-# Добавление товара (только админ)
-async def add_product_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = update.effective_user.id
-    if not is_admin(user_id):
-        await query.answer("У вас нет прав для добавления товаров.")
-        return CHOOSING_MAIN_MENU
-
-    await query.edit_message_text("Введите название товара:")
-    return ADDING_PRODUCT_NAME_STOCK
-
-async def add_product_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["product_name"] = update.message.text.strip()
-    await update.message.reply_text("Введите количество товара:")
-    return ADDING_PRODUCT_QTY_STOCK
-
-async def add_product_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    name = context.user_data.get("product_name")
-    try:
-        qty = int(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("Количество должно быть числом. Введите снова:")
-        return ADDING_PRODUCT_QTY_STOCK
-
-    # Добавляем товар в БД
-    c = None
-    conn = None
-    try:
-        conn = get_connection()
-        c = conn.cursor()
-        c.execute(f"SELECT id FROM {DB_PRFX}products WHERE name=%s", (name,))
-        if c.fetchone():
-            await update.message.reply_text("Товар с таким названием уже существует!")
-        else:
-            c.execute(f"INSERT INTO {DB_PRFX}products (name, quantity) VALUES (%s, %s)", (name, qty))
-            conn.commit()
-            await update.message.reply_text(f"Товар '{name}' добавлен с количеством {qty}")
-    except mysql.connector.Error as err:
-        logger.error(f"Ошибка при добавлении товара: {err}")
-        await update.message.reply_text("Ошибка при добавлении товара, попробуйте позже.")
-    finally:
-        if c:
-            c.close()
-        if conn:
-            conn.close()
 
     await show_main_menu(update, context)
     return CHOOSING_MAIN_MENU
 
-# Создание заказа (предоплата)
-async def make_payment_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.edit_message_text("Введите имя клиента:")
-    return ENTERING_CLIENT_NAME
-
-async def enter_client_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["client_name"] = update.message.text.strip()
-    # Показать список товаров
-    products = get_all_products()
-    if not products:
-        await update.message.reply_text("Нет доступных товаров для заказа.")
-        await show_main_menu(update, context)
-        return CHOOSING_MAIN_MENU
-
-    keyboard = [[InlineKeyboardButton(p[1], callback_data=f"select_product_{p[0]}")] for p in products]
-    await update.message.reply_text("Выберите товар для заказа:", reply_markup=InlineKeyboardMarkup(keyboard))
-    return SELECTING_PRODUCT_FOR_ORDER
-
+# Получаем список всех товаров
 def get_all_products():
     c = None
     conn = None
@@ -294,21 +226,6 @@ def get_all_products():
             conn.close()
     return products
 
-async def select_product_for_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    data = query.data
-    product_id = data.split("_")[-1]
-    # Получим имя товара
-    product = get_product_by_id(product_id)
-    if not product:
-        await query.answer("Товар не найден.")
-        await show_main_menu(update, context)
-        return CHOOSING_MAIN_MENU
-
-    context.user_data["order_product"] = product[1]
-    await query.edit_message_text(f"Вы выбрали: {product[1]}\nВведите количество:")
-    return ENTERING_ORDER_QTY
-
 def get_product_by_id(pid):
     c = None
     conn = None
@@ -326,23 +243,6 @@ def get_product_by_id(pid):
         if conn:
             conn.close()
     return product
-
-async def enter_order_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        qty = int(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("Количество должно быть числом. Попробуйте снова:")
-        return ENTERING_ORDER_QTY
-    context.user_data["order_qty"] = qty
-    # Проверим остатки
-    product_name = context.user_data["order_product"]
-    available_qty = get_product_quantity(product_name)
-    if available_qty < qty:
-        await update.message.reply_text(f"Недостаточно товара. В наличии: {available_qty}. Введите другое количество или /cancel для отмены:")
-        return ENTERING_ORDER_QTY
-
-    await update.message.reply_text("Введите сумму предоплаты:")
-    return ENTERING_ORDER_SUM
 
 def get_product_quantity(name):
     c = None
@@ -363,50 +263,6 @@ def get_product_quantity(name):
         if conn:
             conn.close()
     return qty
-
-async def enter_order_sum(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        sum_paid = float(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("Сумма должна быть числом. Введите снова:")
-        return ENTERING_ORDER_SUM
-
-    context.user_data["order_sum"] = sum_paid
-    client_name = context.user_data["client_name"]
-    product_name = context.user_data["order_product"]
-    qty = context.user_data["order_qty"]
-    await update.message.reply_text(
-        f"Подтвердите заказ:\nКлиент: {client_name}\nТовар: {product_name}\nКоличество: {qty}\nПредоплата: {sum_paid}\n\nОтправьте /yes для подтверждения или /no для отмены."
-    )
-    return CONFIRM_ORDER
-
-async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.lower().strip()
-    if text == "/yes":
-        # Сохраняем заказ
-        order_id = generate_order_id()
-        client_name = context.user_data["client_name"]
-        product_name = context.user_data["order_product"]
-        qty = context.user_data["order_qty"]
-        sum_paid = context.user_data["order_sum"]
-        status = "paid" if sum_paid > 0 else "unpaid"
-        date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        issuer_id = update.effective_user.id
-
-        # Обновить количество товара
-        if not reduce_product_quantity(product_name, qty):
-            await update.message.reply_text("Ошибка обновления количества товара.")
-            await show_main_menu(update, context)
-            return CHOOSING_MAIN_MENU
-
-        add_order_db(order_id, client_name, product_name, qty, date_str, status, sum_paid, date_str, issuer_id)
-
-        await update.message.reply_text(f"Заказ создан. ID заказа: {order_id}")
-    else:
-        await update.message.reply_text("Заказ отменён.")
-
-    await show_main_menu(update, context)
-    return CHOOSING_MAIN_MENU
 
 def reduce_product_quantity(name, qty):
     c = None
@@ -450,9 +306,213 @@ def add_order_db(order_id, client_name, product_name, quantity, date, status, su
         if conn:
             conn.close()
 
+def get_order_by_id(order_id):
+    c = None
+    conn = None
+    result = None
+    try:
+        conn = get_connection()
+        c = conn.cursor(dictionary=True)
+        c.execute(f"SELECT * FROM {DB_PRFX}orders WHERE order_id=%s", (order_id,))
+        result = c.fetchone()
+    except mysql.connector.Error as err:
+        logger.error(f"Ошибка при получении заказа: {err}")
+    finally:
+        if c:
+            c.close()
+        if conn:
+            conn.close()
+    return result
+
+def get_orders_report(start_date, end_date):
+    c = None
+    conn = None
+    result = {"total_orders": 0, "total_sum": 0.0}
+    try:
+        conn = get_connection()
+        c = conn.cursor()
+        query = f"SELECT COUNT(*), SUM(sum_paid) FROM {DB_PRFX}orders WHERE date BETWEEN %s AND %s"
+        c.execute(query, (start_date + " 00:00:00", end_date + " 23:59:59"))
+        row = c.fetchone()
+        if row:
+            result["total_orders"] = row[0] if row[0] else 0
+            result["total_sum"] = row[1] if row[1] else 0.0
+    except mysql.connector.Error as err:
+        logger.error(f"Ошибка при формировании отчёта по заказам: {err}")
+    finally:
+        if c:
+            c.close()
+        if conn:
+            conn.close()
+    return result
+
+def clear_old_orders():
+    c = None
+    conn = None
+    count = 0
+    try:
+        conn = get_connection()
+        c = conn.cursor()
+        cutoff = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(f"DELETE FROM {DB_PRFX}orders WHERE date < %s", (cutoff,))
+        count = c.rowcount
+        conn.commit()
+    except mysql.connector.Error as err:
+        logger.error(f"Ошибка при очистке старых заказов: {err}")
+    finally:
+        if c:
+            c.close()
+        if conn:
+            conn.close()
+    return count
+
+# Обработчики
+
+# Добавление товара
+async def add_product_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await query.edit_message_text("У вас нет прав для добавления товаров.")
+        return CHOOSING_MAIN_MENU
+
+    await query.edit_message_text("Введите название товара:")
+    return ADDING_PRODUCT_NAME_STOCK
+
+async def add_product_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["product_name"] = update.message.text.strip()
+    await update.message.reply_text("Введите количество товара:")
+    return ADDING_PRODUCT_QTY_STOCK
+
+async def add_product_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    name = context.user_data.get("product_name")
+    try:
+        qty = int(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("Количество должно быть числом. Введите снова:")
+        return ADDING_PRODUCT_QTY_STOCK
+
+    c = None
+    conn = None
+    try:
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute(f"SELECT id FROM {DB_PRFX}products WHERE name=%s", (name,))
+        if c.fetchone():
+            await update.message.reply_text("Товар с таким названием уже существует!")
+        else:
+            c.execute(f"INSERT INTO {DB_PRFX}products (name, quantity) VALUES (%s, %s)", (name, qty))
+            conn.commit()
+            await update.message.reply_text(f"Товар '{name}' добавлен с количеством {qty}")
+    except mysql.connector.Error as err:
+        logger.error(f"Ошибка при добавлении товара: {err}")
+        await update.message.reply_text("Ошибка при добавлении товара, попробуйте позже.")
+    finally:
+        if c:
+            c.close()
+        if conn:
+            conn.close()
+
+    await show_main_menu(update, context)
+    return CHOOSING_MAIN_MENU
+
+# Создание заказа (предоплата)
+async def make_payment_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("Введите имя клиента:")
+    return ENTERING_CLIENT_NAME
+
+async def enter_client_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["client_name"] = update.message.text.strip()
+    products = get_all_products()
+    if not products:
+        await update.message.reply_text("Нет доступных товаров для заказа.")
+        await show_main_menu(update, context)
+        return CHOOSING_MAIN_MENU
+
+    keyboard = [[InlineKeyboardButton(p[1], callback_data=f"select_product_{p[0]}")] for p in products]
+    await update.message.reply_text("Выберите товар для заказа:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return SELECTING_PRODUCT_FOR_ORDER
+
+async def select_product_for_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    product_id = data.split("_")[-1]
+    product = get_product_by_id(product_id)
+    if not product:
+        await query.edit_message_text("Товар не найден.")
+        await show_main_menu(update, context)
+        return CHOOSING_MAIN_MENU
+
+    context.user_data["order_product"] = product[1]
+    await query.edit_message_text(f"Вы выбрали: {product[1]}\nВведите количество:")
+    return ENTERING_ORDER_QTY
+
+async def enter_order_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        qty = int(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("Количество должно быть числом. Попробуйте снова:")
+        return ENTERING_ORDER_QTY
+    context.user_data["order_qty"] = qty
+
+    product_name = context.user_data["order_product"]
+    available_qty = get_product_quantity(product_name)
+    if available_qty < qty:
+        await update.message.reply_text(f"Недостаточно товара. В наличии: {available_qty}. Введите другое количество или /cancel для отмены:")
+        return ENTERING_ORDER_QTY
+
+    await update.message.reply_text("Введите сумму предоплаты:")
+    return ENTERING_ORDER_SUM
+
+async def enter_order_sum(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        sum_paid = float(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("Сумма должна быть числом. Введите снова:")
+        return ENTERING_ORDER_SUM
+
+    context.user_data["order_sum"] = sum_paid
+    client_name = context.user_data["client_name"]
+    product_name = context.user_data["order_product"]
+    qty = context.user_data["order_qty"]
+    await update.message.reply_text(
+        f"Подтвердите заказ:\nКлиент: {client_name}\nТовар: {product_name}\nКоличество: {qty}\nПредоплата: {sum_paid}\n\nОтправьте /yes для подтверждения или /no для отмены."
+    )
+    return CONFIRM_ORDER
+
+async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.lower().strip()
+    if text == "/yes":
+        order_id = generate_order_id()
+        client_name = context.user_data["client_name"]
+        product_name = context.user_data["order_product"]
+        qty = context.user_data["order_qty"]
+        sum_paid = context.user_data["order_sum"]
+        status = "paid" if sum_paid > 0 else "unpaid"
+        date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        issuer_id = update.effective_user.id
+
+        if not reduce_product_quantity(product_name, qty):
+            await update.message.reply_text("Ошибка обновления количества товара.")
+            await show_main_menu(update, context)
+            return CHOOSING_MAIN_MENU
+
+        add_order_db(order_id, client_name, product_name, qty, date_str, status, sum_paid, date_str, issuer_id)
+        await update.message.reply_text(f"Заказ создан. ID заказа: {order_id}")
+    else:
+        await update.message.reply_text("Заказ отменён.")
+
+    await show_main_menu(update, context)
+    return CHOOSING_MAIN_MENU
+
 # Проверка заказа по ID
 async def check_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     await query.edit_message_text("Введите ID заказа для проверки:")
     return ENTERING_SEARCH_ORDER_ID
 
@@ -480,27 +540,10 @@ async def check_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_main_menu(update, context)
     return CHOOSING_MAIN_MENU
 
-def get_order_by_id(order_id):
-    c = None
-    conn = None
-    result = None
-    try:
-        conn = get_connection()
-        c = conn.cursor(dictionary=True)
-        c.execute(f"SELECT * FROM {DB_PRFX}orders WHERE order_id=%s", (order_id,))
-        result = c.fetchone()
-    except mysql.connector.Error as err:
-        logger.error(f"Ошибка при получении заказа: {err}")
-    finally:
-        if c:
-            c.close()
-        if conn:
-            conn.close()
-    return result
-
 # Отчёты
 async def reports_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     keyboard = [
         [InlineKeyboardButton("Отчёт по складу", callback_data="report_stock")],
         [InlineKeyboardButton("Отчёт по заказам", callback_data="report_orders")],
@@ -511,6 +554,7 @@ async def reports_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def report_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     products = get_all_products()
     if not products:
         await query.edit_message_text("Склад пуст.")
@@ -526,12 +570,12 @@ async def report_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def report_orders_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     await query.edit_message_text("Введите начальную дату (формат YYYY-MM-DD):")
     return ENTERING_REPORT_DATE_RANGE_START
 
 async def report_orders_start_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_date = update.message.text.strip()
-    # Примитивная проверка
     try:
         datetime.datetime.strptime(start_date, "%Y-%m-%d")
     except ValueError:
@@ -564,34 +608,13 @@ async def report_orders_end_date(update: Update, context: ContextTypes.DEFAULT_T
     await show_main_menu(update, context)
     return CHOOSING_MAIN_MENU
 
-def get_orders_report(start_date, end_date):
-    c = None
-    conn = None
-    result = {"total_orders": 0, "total_sum": 0.0}
-    try:
-        conn = get_connection()
-        c = conn.cursor()
-        query = f"SELECT COUNT(*), SUM(sum_paid) FROM {DB_PRFX}orders WHERE date BETWEEN %s AND %s"
-        c.execute(query, (start_date + " 00:00:00", end_date + " 23:59:59"))
-        row = c.fetchone()
-        if row:
-            result["total_orders"] = row[0] if row[0] else 0
-            result["total_sum"] = row[1] if row[1] else 0.0
-    except mysql.connector.Error as err:
-        logger.error(f"Ошибка при формировании отчёта по заказам: {err}")
-    finally:
-        if c:
-            c.close()
-        if conn:
-            conn.close()
-    return result
-
 # Очистка старых заказов
 async def clear_orders_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await query.answer("У вас нет прав для очистки заказов.")
+        await query.edit_message_text("У вас нет прав для очистки заказов.")
         return CHOOSING_MAIN_MENU
 
     await query.edit_message_text("Удалить заказы старше 30 дней? /yes для подтверждения, /no для отмены.")
@@ -608,32 +631,13 @@ async def confirm_clear_orders(update: Update, context: ContextTypes.DEFAULT_TYP
     await show_main_menu(update, context)
     return CHOOSING_MAIN_MENU
 
-def clear_old_orders():
-    c = None
-    conn = None
-    count = 0
-    try:
-        conn = get_connection()
-        c = conn.cursor()
-        cutoff = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
-        c.execute(f"DELETE FROM {DB_PRFX}orders WHERE date < %s", (cutoff,))
-        count = c.rowcount
-        conn.commit()
-    except mysql.connector.Error as err:
-        logger.error(f"Ошибка при очистке старых заказов: {err}")
-    finally:
-        if c:
-            c.close()
-        if conn:
-            conn.close()
-    return count
-
 # Добавление пользователя (админ)
 async def add_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await query.answer("У вас нет прав для добавления пользователей.")
+        await query.edit_message_text("У вас нет прав для добавления пользователей.")
         return CHOOSING_MAIN_MENU
 
     await query.edit_message_text("Введите Telegram ID нового пользователя:")
@@ -656,8 +660,6 @@ async def adding_user_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADDING_USER_ROLE
 
     new_user_id = context.user_data["new_user_id"]
-    # Добавляем в БД
-    # Проверяем, есть ли уже пользователь
     if get_user_role(new_user_id) is not None:
         await update.message.reply_text("Пользователь с таким Telegram ID уже существует.")
     else:
@@ -670,6 +672,7 @@ async def adding_user_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Список товаров
 async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     products = get_all_products()
     if not products:
         await query.edit_message_text("Нет товаров.")
@@ -683,6 +686,8 @@ async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CHOOSING_MAIN_MENU
 
 async def main_menu_return(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     await show_main_menu(update, context)
     return CHOOSING_MAIN_MENU
 
@@ -756,7 +761,6 @@ def main():
     )
 
     application.add_handler(conv_handler)
-
     application.run_polling()
 
 if __name__ == "__main__":
