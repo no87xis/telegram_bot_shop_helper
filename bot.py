@@ -21,7 +21,7 @@ DB_PASS = 'XRaRziqAq9Pf41pB'
 DB_NAME = 'chatbot_db'
 DB_PRFX = 'bot_'  # Префикс таблиц
 
-BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 
 (
     CHOOSING_MAIN_MENU,
