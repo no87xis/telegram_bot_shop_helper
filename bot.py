@@ -21,7 +21,7 @@ DB_PASS = 'XRaRziqAq9Pf41pB'
 DB_NAME = 'chatbot_db'
 DB_PRFX = 'bot_'  # Префикс таблиц
 
-BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 
 (
     CHOOSING_MAIN_MENU,
@@ -158,6 +158,21 @@ def create_order(client_name, product_name, quantity, sum_paid):
     conn.close()
     return order_id
 
+def main_menu_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("Добавить товар", callback_data="add_product")],
+        [InlineKeyboardButton("Сделать предоплату", callback_data="make_payment")],
+        [InlineKeyboardButton("Проверить заказ по ID", callback_data="check_order")],
+        [InlineKeyboardButton("Отчёты", callback_data="reports")],
+        [InlineKeyboardButton("Очистка старых заказов", callback_data="clear_orders")],
+        [InlineKeyboardButton("Добавить пользователя", callback_data="add_user")],
+        [InlineKeyboardButton("Список товаров", callback_data="list_products")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Главное меню:", reply_markup=main_menu_keyboard())
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = get_user_role(update.effective_user.id)
     if role is None:
@@ -173,7 +188,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("Вы не авторизованы. Обратитесь к администратору.")
             return ConversationHandler.END
-    return await update.message.reply_text("Добро пожаловать в бота!")
+    await show_main_menu(update, context)
 
 def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
