@@ -1078,25 +1078,28 @@ async def view_order_from_report(update: Update, context: ContextTypes.DEFAULT_T
     await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
     return VIEWING_HISTORY_ORDERS
 
-async def delete_order_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    # data: delorder_{order_id}
-    order_id = data.split("_",1)[1]
-    context.user_data["delete_order_id"] = order_id
-    await query.edit_message_text("Напишите 'удалить безвозвратно' для подтверждения удаления:")
-    return DELETE_ORDER_CONFIRM
-
 async def delete_order_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
     order_id = context.user_data["delete_order_id"]
     if text == "удалить безвозвратно":
+        # Сначала получаем детали заказа
+        order = get_order_by_id(order_id)
+        if order:
+            # order: order_id, client_name, product_name, quantity, date, status, sum_paid, issue_date, issuer_id
+            _, _, product_name, quantity, _, _, _, _, _ = order
+            
+            # Возвращаем количество товара на склад
+            current_qty = get_product_quantity_by_name(product_name)
+            new_qty = current_qty + quantity
+            update_product_quantity(product_name, new_qty, by_id=False)
+        
+        # Теперь удаляем сам заказ
         delete_order(order_id)
-        await update.message.reply_text(f"Заказ {order_id} удален.")
+        await update.message.reply_text(f"Заказ {order_id} удален, количество товара восстановлено.")
     else:
         await update.message.reply_text("Отмена удаления.")
     return await show_main_menu(update, context)
+
 
 # Список товаров
 async def list_products_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
