@@ -117,7 +117,7 @@ init_db()
     ORDER_STATUS_CHANGE_CONFIRM,
     LIST_PRODUCTS_CHOICE,
     SELECTING_USER_ACTION,
-) = range(31)
+) = range(32)
 
 def get_connection():
     try:
