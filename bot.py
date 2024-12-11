@@ -1058,8 +1058,7 @@ async def view_order_from_report(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     data = query.data
-    # data: view_order_{order_id}
-    # или history_order_{order_id}
+    # data: view_order_{order_id} или history_order_{order_id}
     order_id = data.split("_",2)[2]
     order = get_order_by_id(order_id)
     if not order:
@@ -1070,6 +1069,24 @@ async def view_order_from_report(update: Update, context: ContextTypes.DEFAULT_T
            f"Дата: {date}\nСтатус: {status}\nСумма: {sum_paid:.2f}")
     if issue_date:
         msg += f"\nВыдан: {issue_date}, Выдал пользователь ID: {issuer_id}"
+
+    # Предложим удалить заказ
+    keyboard = [
+        [InlineKeyboardButton("Удалить заказ", callback_data=f"delorder_{order_id}")],
+        [InlineKeyboardButton("Назад в меню", callback_data="main_menu")]
+    ]
+    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
+    return VIEWING_HISTORY_ORDERS
+
+# А теперь, ниже, полностью отдельно, без смешивания кода, определяем delete_order_prepare:
+async def delete_order_prepare(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    order_id = data.split("_", 1)[1]
+    context.user_data["delete_order_id"] = order_id
+    await query.edit_message_text("Напишите 'удалить безвозвратно' для подтверждения удаления:")
+    return DELETE_ORDER_CONFIRM
 
     # Предложим удалить заказ
     keyboard = [
@@ -1344,11 +1361,12 @@ def main():
             ],
 
             VIEWING_HISTORY_ORDERS: [
-                CallbackQueryHandler(delete_order_confirm, pattern="^delorder_"),
+                CallbackQueryHandler(delete_order_prepare, pattern="^delorder_"),
                 CallbackQueryHandler(show_main_menu, pattern="^main_menu$")
             ],
             DELETE_ORDER_CONFIRM: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, delete_order_execute)
+                CallbackQueryHandler(delete_order_prepare, pattern="^delorder_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, delete_order_execute),
             ],
 
             LIST_PRODUCTS_CHOICE: [
