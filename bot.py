@@ -561,8 +561,9 @@ def generate_pdf_order_details(order):
     pdf.set_font("DejaVu","",9)
     pdf.cell(0,5,"Спасибо за ваш выбор! SIRIUS-GROUP.STORE", align='C', ln=1)
 
-    pdf.output(buffer, 'F')
-    buffer.seek(0)
+    pdf_content = pdf.output(dest='S').encode('latin-1')  # Генерируем PDF как строку и кодируем
+buffer.write(pdf_content)  # Записываем содержимое в BytesIO
+buffer.seek(0)  # Возвращаемся в начало буфера
     return buffer
 
 def generate_report_orders_pdf():
