@@ -29,14 +29,19 @@ def is_bot_alive():
         return False
 
 def restart_bot():
-    """Перезапуск бота."""
-    write_log("Бот завис. Перезапускаю...")
-    # Убиваем текущий процесс бота безопасно
+    """Перезапуск бота с логированием."""
+    print("Бот завис. Перезапускаю...")
+    # Убиваем текущий процесс бота
     os.system("pkill -f bot.py")
     time.sleep(2)
-    # Запускаем бот заново и логируем его перезапуск
-    subprocess.Popen(["python3", BOT_PATH], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    write_log("Бот успешно перезапущен.")
+    # Запускаем бот заново и записываем логи
+    with open("/var/www/telegram_bot_shop_helper/logs/bot.log", "a") as log_file:
+        subprocess.Popen(
+            ["python3", BOT_PATH],
+            stdout=log_file,
+            stderr=log_file
+        )
+    print("Бот успешно перезапущен.")
 
 if __name__ == "__main__":
     write_log("Запуск health_check.py для мониторинга бота.")
