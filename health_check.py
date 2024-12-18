@@ -34,29 +34,29 @@ def is_bot_alive():
 
 def restart_bot():
     """Перезапуск бота с логированием."""
-    write_log("Бот завис. Перезапускаю...")
+    write_log(HEALTH_LOG, "Бот завис. Перезапускаю...")
     # Завершаем старый процесс бота
     os.system("pkill -f bot.py")
     time.sleep(2)
     
     # Проверяем, что процесс действительно завершён
     if "bot.py" not in os.popen("ps aux").read():
-        write_log("Старый процесс бота завершён успешно.")
+        write_log(HEALTH_LOG, "Старый процесс бота завершён успешно.")
     else:
-        write_log("Не удалось завершить старый процесс бота.")
+        write_log(HEALTH_LOG, "Не удалось завершить старый процесс бота.")
     
     # Запускаем бот заново и логируем процесс
     try:
-        with open("/var/www/telegram_bot_shop_helper/logs/bot.log", "a") as log_file:
+        with open(BOT_LOG, "a") as log_file:
             subprocess.Popen(
-                ["python3", BOT_PATH],
+                ["nohup", "python3", BOT_PATH],
                 stdout=log_file,
                 stderr=log_file,
                 preexec_fn=os.setsid
             )
-        write_log("Бот успешно перезапущен.")
+        write_log(HEALTH_LOG, "Бот успешно перезапущен.")
     except Exception as e:
-        write_log(f"Ошибка при перезапуске бота: {e}")
+        write_log(HEALTH_LOG, f"Ошибка при перезапуске бота: {e}")
 
 
 if __name__ == "__main__":
