@@ -17,16 +17,13 @@ def write_log(message):
         log_file.write(f"{datetime.now()} - {message}\n")
 
 def is_bot_alive():
-    """Проверка ответа от бота."""
+    """Проверка, доступен ли бот через API Telegram."""
     try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        params = {"chat_id": CHAT_ID, "text": "/ping"}
-        response = requests.get(url, params=params, timeout=10)
-        if response.status_code == 200:
-            return True
-        else:
-            write_log(f"Ответ от сервера не 200: {response.status_code}")
-            return False
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getMe"
+        response = requests.get(url, timeout=10)
+        return response.status_code == 200
+    except requests.exceptions.RequestException:
+        return False
     except requests.exceptions.RequestException as e:
         write_log(f"Ошибка при запросе: {e}")
         return False
