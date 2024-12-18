@@ -5,7 +5,7 @@ import requests
 from datetime import datetime
 
 BOT_TOKEN = "7824760453:AAGuV6vdRhNhvot3xIIgPK0WsnEE8KX5tHI"  # Замените на ваш токен
-CHAT_ID = "1867417929"  # Замените на ID чата, куда можно отправить сообщение
+CHAT_ID = "100000919"  # Замените на ID чата, куда можно отправить сообщение
 
 BOT_PATH = "/var/www/telegram_bot_shop_helper/bot.py"  # Путь к вашему боту
 CHECK_INTERVAL = 60  # Интервал проверки (в секундах)
