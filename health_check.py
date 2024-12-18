@@ -35,17 +35,19 @@ def is_bot_alive():
 def restart_bot():
     """Перезапуск бота с логированием."""
     write_log(HEALTH_LOG, "Бот завис. Перезапускаю...")
-    # Завершаем старый процесс бота
+    
+    # Завершаем старый процесс
     os.system("pkill -f bot.py")
     time.sleep(2)
     
-    # Проверяем, что процесс действительно завершён
+    # Проверка завершения процесса
     if "bot.py" not in os.popen("ps aux").read():
         write_log(HEALTH_LOG, "Старый процесс бота завершён успешно.")
     else:
         write_log(HEALTH_LOG, "Не удалось завершить старый процесс бота.")
+        return
     
-    # Запускаем бот заново и логируем процесс
+    # Запускаем новый процесс бота
     try:
         with open(BOT_LOG, "a") as log_file:
             subprocess.Popen(
@@ -57,7 +59,6 @@ def restart_bot():
         write_log(HEALTH_LOG, "Бот успешно перезапущен.")
     except Exception as e:
         write_log(HEALTH_LOG, f"Ошибка при перезапуске бота: {e}")
-
 
 if __name__ == "__main__":
     write_log(HEALTH_LOG, "Запуск health_check.py для мониторинга бота.")
