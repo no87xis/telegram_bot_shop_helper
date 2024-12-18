@@ -509,80 +509,48 @@ def generate_pdf_order_details(order):
     buffer = BytesIO()
     pdf = FPDF()
     pdf.add_page()
-    setup_unicode_pdf(pdf, 10)
 
-    if os.path.exists("logo.png"):
-        pdf.image("logo.png", 10, 10, 20)
-    pdf.set_xy(35,10)
-    pdf.set_font("DejaVu", "", 14)
-    pdf.cell(0,10,"SIRIUS-GROUP.STORE", ln=1)
-    pdf.set_font("DejaVu","",8)
-    pdf.set_x(35)
-    pdf.cell(0,5,"г. Москва ул. Руссиянова 31 кабинет 6Б", ln=1)
-    pdf.set_x(35)
-    pdf.cell(0,5,"Телефон: +7 999 398-01-59", ln=1)
-    pdf.set_x(35)
-    pdf.cell(0,5,"Сайт: https://sirius-group.store/", ln=1)
-    pdf.ln(5)
-    pdf.set_draw_color(150,150,150)
-    pdf.set_line_width(0.5)
-    y_line = pdf.get_y()
-    pdf.line(10,y_line,200,y_line)
-    pdf.ln(5)
-    pdf.set_font("DejaVu","",16)
-    pdf.cell(0,10,"Счёт / Квитанция об оплате", ln=1, align='C')
-    pdf.ln(5)
-    pdf.set_font("DejaVu","",10)
+    # Добавляем шрифт Unicode
+    if os.path.exists("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+        pdf.add_font('DejaVu', '', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', uni=True)
+        pdf.set_font('DejaVu', '', 10)
+    else:
+        pdf.set_font('Arial', '', 10)
 
-    def table_row(label, value):
-        pdf.set_x(20)
-        pdf.cell(50,8,label, border=0)
-        pdf.cell(0,8,str(value), border=0, ln=1)
-
-    table_row("ID заказа:", order_id)
-    table_row("Дата оплаты:", date)
-    table_row("Имя клиента:", client_name)
-    table_row("Товар:", product_name)
-    table_row("Количество:", quantity)
-    table_row("Сумма оплачена:", f"{sum_paid:.2f} руб.")
-    table_row("Цена за штуку:", f"{price_per_item:.2f} руб.")
-    table_row("Статус:", status if status else "Неизвестен")
-
+    pdf.cell(200, 10, txt="Чек об оплате", ln=True, align='C')
     pdf.ln(10)
-    pdf.cell(0,5,"Данный документ подтверждает факт предоплаты по заказу. Для получения товара",ln=1)
-    pdf.cell(0,5,"предъявите уникальный номер заказа.",ln=1)
+    pdf.cell(200, 10, txt=f"ID заказа: {order_id}", ln=True)
+    pdf.cell(200, 10, txt=f"Имя клиента: {client_name}", ln=True)
+    pdf.cell(200, 10, txt=f"Товар: {product_name}", ln=True)
+    pdf.cell(200, 10, txt=f"Количество: {quantity}", ln=True)
+    pdf.cell(200, 10, txt=f"Оплачено: {sum_paid:.2f} руб.", ln=True)
+    pdf.cell(200, 10, txt=f"Цена за единицу: {price_per_item:.2f} руб.", ln=True)
 
-    pdf.ln(5)
-    pdf.set_draw_color(150,150,150)
-    y_line = pdf.get_y()
-    pdf.line(10,y_line,200,y_line)
-    pdf.ln(5)
-
-    pdf.set_font("DejaVu","",9)
-    pdf.cell(0,5,"Спасибо за ваш выбор! SIRIUS-GROUP.STORE", align='C', ln=1)
-
-    pdf_content = pdf.output(dest='S').encode('latin-1')  # Генерируем PDF как строку и кодируем
-    buffer.write(pdf_content)  # Записываем содержимое в BytesIO
-    buffer.seek(0)  # Возвращаемся в начало буфера
+    # Записываем PDF в буфер
+    pdf.output(buffer)
+    buffer.seek(0)
     return buffer
+
 
 def generate_report_orders_pdf():
     rows = get_all_orders()
     buffer = BytesIO()
     pdf = FPDF()
     pdf.add_page()
-    setup_unicode_pdf(pdf, 10)
-    if os.path.exists("logo.png"):
-        pdf.image("logo.png", 10, 8, 33)
-    pdf.ln(20)
-    pdf.set_font("DejaVu","",14)
-    pdf.cell(0,10,"Отчет по заказам",0,1)
+
+    # Добавляем шрифт Unicode
+    if os.path.exists("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+        pdf.add_font('DejaVu', '', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', uni=True)
+        pdf.set_font('DejaVu', '', 10)
+    else:
+        pdf.set_font('Arial', '', 10)
+
+    pdf.cell(0, 10, "Отчет по заказам", ln=True, align='C')
     pdf.ln(5)
-    pdf.set_font("DejaVu","",9)
     for row in rows:
-        order_id, client_name, product_name, quantity, date, status, sum_paid, issue_date, issuer_id = row
-        pdf.cell(0,6,f"ID: {order_id} | {client_name} - {product_name} x {quantity} | {date} | Статус: {status} | Сумма: {sum_paid:.2f}",0,1)
-    pdf.output(buffer, 'F')
+        pdf.cell(0, 10, f"{row[0]} | {row[1]} - {row[2]} x {row[3]} | {row[5]}", ln=True)
+
+    pdf.output(buffer)
     buffer.seek(0)
     return buffer
 
@@ -851,8 +819,8 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Отправляем чек в PDF
         order = get_order_by_id(order_id)
         pdf_buffer = generate_pdf_order_details(order)
-        await update.message.reply_text(f"Заказ создан! ID: {order_id}")
         await update.message.reply_document(document=pdf_buffer, filename=f"order_{order_id}.pdf")
+
 
         # Уведомляем админов о новом заказе
         await notify_admins(context, f"Новый заказ: {order_id}\nКлиент: {client_name}\nТовар: {product_name}\nКоличество: {qty}\nСумма: {sum_paid}")
