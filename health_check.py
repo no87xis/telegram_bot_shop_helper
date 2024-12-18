@@ -23,42 +23,44 @@ def is_bot_alive():
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/getMe"
         response = requests.get(url, timeout=10)
-        if response.status_code == 200:
+        data = response.json()  # Конвертируем ответ в JSON
+        if response.status_code == 200 and data.get("ok"):
+            write_log(HEALTH_LOG, "API Telegram: Бот работает нормально.")
             return True
         else:
-            write_log(HEALTH_LOG, f"Бот не отвечает. Код состояния: {response.status_code}")
+            write_log(HEALTH_LOG, f"API Telegram: Бот не отвечает. Статус: {response.status_code}, Ответ: {data}")
             return False
     except requests.exceptions.RequestException as e:
-        write_log(HEALTH_LOG, f"Ошибка при проверке бота: {e}")
+        write_log(HEALTH_LOG, f"Ошибка при запросе к API Telegram: {e}")
         return False
+
 
 def restart_bot():
     """Перезапуск бота с логированием."""
     write_log(HEALTH_LOG, "Бот завис. Перезапускаю...")
     
-    # Завершаем старый процесс
+    # Завершаем процесс бота
     os.system("pkill -f bot.py")
     time.sleep(2)
     
-    # Проверка завершения процесса
-    if "bot.py" not in os.popen("ps aux").read():
-        write_log(HEALTH_LOG, "Старый процесс бота завершён успешно.")
-    else:
+    # Проверка, что процесс завершён
+    if "bot.py" in os.popen("ps aux").read():
         write_log(HEALTH_LOG, "Не удалось завершить старый процесс бота.")
         return
-    
-    # Запускаем новый процесс бота
+    write_log(HEALTH_LOG, "Старый процесс бота завершён успешно.")
+
+    # Запускаем новый процесс
     try:
         with open(BOT_LOG, "a") as log_file:
-            subprocess.Popen(
-                ["nohup", "python3", BOT_PATH],
-                stdout=log_file,
-                stderr=log_file,
-                preexec_fn=os.setsid
-            )
-        write_log(HEALTH_LOG, "Бот успешно перезапущен.")
+            subprocess.Popen(["python3", BOT_PATH], stdout=log_file, stderr=log_file, preexec_fn=os.setsid)
+        time.sleep(5)  # Ждём несколько секунд перед проверкой
+        if "bot.py" in os.popen("ps aux").read():
+            write_log(HEALTH_LOG, "Бот успешно перезапущен и работает.")
+        else:
+            write_log(HEALTH_LOG, "Ошибка: Бот не запустился.")
     except Exception as e:
-        write_log(HEALTH_LOG, f"Ошибка при перезапуске бота: {e}")
+        write_log(HEALTH_LOG, f"Ошибка при запуске бота: {e}")
+
 
 if __name__ == "__main__":
     write_log(HEALTH_LOG, "Запуск health_check.py для мониторинга бота.")
